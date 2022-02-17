@@ -7,11 +7,7 @@
 #include <time.h>
 #include <pthread.h>
 
-void CloseConnection(int socket_desc, int client_sock);
 void *HandleTCPConnection(void *clientThreadNode);
-
-int keepRunning = 1;
-int socket_desc, client_sock;
 
 typedef struct threadNode {
     int id;
@@ -23,12 +19,19 @@ typedef struct threadNode {
 
 typedef struct threadInfo {
     threadNode_t *head;
+    int serverSocket;
+    struct sockaddr_in serverAddr;
+    int clientSocket;
+    struct sockaddr_in clientAddr;
+    int clientAddrSize;
     int threadCount;
+    int keepRunning;
 } threadInfo_t;
 
 threadInfo_t clientSocketThreads;
 
 void InitClientSocketThreads() {
+   clientSocketThreads.keepRunning = 1;
    clientSocketThreads.head = NULL; 
    clientSocketThreads.threadCount = 0; 
 }
@@ -98,12 +101,13 @@ void signalHandler(int sig) {
 
     signal(sig, SIG_IGN);
     
-    printf("OUCH, did you hit Ctrl-C?\nDo you really want to quit? [y/n] : ");
+    printf("TERMINATE: did you hit Ctrl-C?\nDo you really want to quit? [y/n] : ");
     c = getchar();
     
     if (c == 'y' || c == 'Y') {
-        keepRunning = 0;
-        CloseConnection(socket_desc, client_sock);
+        clientSocketThreads.keepRunning = 0;
+        close(clientSocketThreads.serverSocket);
+        EXIT_FAILURE;
     } else {
         signal(SIGINT, signalHandler);
     }
@@ -129,26 +133,14 @@ char *GetDateAndTime(char *timeFormat) {
 
     return timeBuffer;
 }
-
-void CloseConnection(int socket_desc, int client_sock) {
-    printf("Terminating connection ...\n");
-    close(client_sock);
-    close(socket_desc);
-}
-
-
+    
 
 int main(void)
 {
     pthread_t threadId;
     char* currentTime;
    
-    int client_size;
-    struct sockaddr_in server_addr, client_addr;
-    struct in_addr temp_addr;
-
     InitClientSocketThreads();
-    
     signal(SIGINT, signalHandler);
     signal(SIGSEGV, signalHandler);
     
@@ -156,36 +148,35 @@ int main(void)
     printf("Version 1.0\n");
     printf("Starting...\n\n");
 
-    socket_desc = socket(AF_INET, SOCK_STREAM, 0);
+    clientSocketThreads.serverSocket = socket(AF_INET, SOCK_STREAM, 0);
 
-    if (socket_desc < 0) 
+    if (clientSocketThreads.serverSocket < 0) 
         DieWithError("Error while creating socket");
     
     StatusSuccess("Socket created successfully");
     
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(2000);
-    server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    clientSocketThreads.serverAddr.sin_family = AF_INET;
+    clientSocketThreads.serverAddr.sin_port = htons(2000);
+    clientSocketThreads.serverAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
     
-    if (bind(socket_desc, (struct sockaddr*) &server_addr, sizeof(server_addr)) < 0)
+    if (bind( clientSocketThreads.serverSocket, (struct sockaddr*) &clientSocketThreads.serverAddr, sizeof(clientSocketThreads.serverAddr)) < 0)
         DieWithError("Couldn't bind to the port");
     
     StatusSuccess("Done with binding server to IP and Port...");
     
-    if (listen(socket_desc, 1) < 0)
+    if (listen(clientSocketThreads.serverSocket, 1) < 0)
         DieWithError("Error while listening\n");
     
     StatusSuccess("Listening for incoming connections ....");
-    printf("IP Address: %s\nPort: %i\nListen Socket ID: %i\nServer IP Address (Binary): %i\n\n", inet_ntoa(server_addr.sin_addr), ntohs(server_addr.sin_port), socket_desc, server_addr.sin_addr.s_addr) ;
+    printf("IP Address: %s\nPort: %i\nListen Socket ID: %i\nServer IP Address (Binary): %i\n\n", inet_ntoa(clientSocketThreads.serverAddr.sin_addr), ntohs(clientSocketThreads.serverAddr.sin_port),  clientSocketThreads.serverSocket, clientSocketThreads.serverAddr.sin_addr.s_addr) ;
     
-    while (keepRunning) {
+    while (clientSocketThreads.keepRunning) {
         threadNode_t *clientThreadNode;
         clientThreadNode = (threadNode_t *) malloc(sizeof(threadNode_t));
 
-        client_size = sizeof(client_addr);
-        client_sock = accept(socket_desc, (struct sockaddr*) &client_addr, &client_size);
-
-        clientThreadNode = AddClientSocketThread(0, client_sock, client_addr);
+        clientSocketThreads.clientAddrSize = sizeof(clientSocketThreads.clientAddr);
+        clientSocketThreads.clientSocket = accept(clientSocketThreads.serverSocket, (struct sockaddr*) & clientSocketThreads.clientAddr, &clientSocketThreads.clientAddrSize);
+        clientThreadNode = AddClientSocketThread(0, clientSocketThreads.clientSocket, clientSocketThreads.clientAddr);
 
         if (pthread_create(&clientThreadNode->threadId , NULL, HandleTCPConnection, clientThreadNode) != 0) 
             DieWithError("Unable to create thread.\n");
@@ -203,19 +194,30 @@ void *HandleTCPConnection(void *clientThreadNode) {
     char server_message[2000], client_message[2000];
     char *tempMessage;
 
-    if (client_sock < 0)
+    if (threadNode->socketId < 0)
         DieWithError("Can't accept. Connection may have been closed.\n");
     
     currentTime = GetDateAndTime("%x - %I:%M%p");
     StatusSuccess("Client Connected");
-    printf("IP Address:  %s\nPort: %i\nClient Socket ID: %i\nThread ID: %lu\n, Client Number: %i\n\n", inet_ntoa(threadNode->addr.sin_addr), ntohs(threadNode->addr.sin_port), threadNode->socketId, (unsigned long) threadNode->threadId, clientSocketThreads.threadCount);
+
+    if (clientMessageLength = recv(threadNode->socketId, client_message, sizeof(client_message), 0) < 0) {
+        StatusSuccess("Client Can't Connect");
+        close(threadNode->socketId);
+        EXIT = 1;
+    }
+
+    printf("IP Address:  %s\nPort: %i\nClient Socket ID: %i\nThread ID: %lu\nClient Number: %i\nName: %s\n\n", inet_ntoa(threadNode->addr.sin_addr), ntohs(threadNode->addr.sin_port), threadNode->socketId, (unsigned long) threadNode->threadId, clientSocketThreads.threadCount, client_message);
     
-    while (keepRunning && !EXIT) {
+    while (clientSocketThreads.keepRunning && !EXIT) {
         memset(server_message, '\0', sizeof(server_message));
         memset(client_message, '\0', sizeof(client_message));
 
-        if (clientMessageLength = recv(threadNode->socketId, client_message, sizeof(client_message), 0) < 0)
-            DieWithError("Couldn't receive. Connection may have been closed.");
+        if (clientMessageLength = recv(threadNode->socketId, client_message, sizeof(client_message), 0) < 0) {
+            StatusSuccess("Client Can't Connect");
+            close(threadNode->socketId);
+            EXIT = 1;
+            //DieWithError("Couldn't receive. Connection may have been closed.");
+        } else {
         
         printf("Client: %s\n", client_message);
         currentTime = GetDateAndTime("%x - %I:%M%p");
@@ -224,8 +226,9 @@ void *HandleTCPConnection(void *clientThreadNode) {
         strcat(server_message, client_message);
         strcat(server_message, "]");
         
-        if (send(threadNode->socketId, server_message, strlen(server_message), 0) < 0)
-            DieWithError("Can't send.");
+        if (send(threadNode->socketId, server_message, strlen(server_message), 0) < 0) 
+            StatusSuccess("Client Can't Send");
+        }
 
         // if (strcmp (&client_message, "EXIT")) {
         //     printf("---------------------------------");

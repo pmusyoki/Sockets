@@ -1,18 +1,40 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netdb.h>
 
-#define TRUE 1 
+int keepRunning = 1;
+int socket_desc;
+
+void signalHandler(int sig) {
+    char  c;
+
+    signal(sig, SIG_IGN);
+    
+    printf("TERMINATE: Did you hit Ctrl-C?\nDo you really want to quit? [y/n] : ");
+    c = getchar();
+    
+    if (c == 'y' || c == 'Y') {
+        keepRunning = 0;
+        close(socket_desc);
+        EXIT_FAILURE;
+    } else {
+        signal(SIGINT, signalHandler);
+    }
+}
 
 int main(void)
 {
-    int socket_desc;
+    
     struct sockaddr_in server_addr, client_addr, temp_addr;
-    char server_message[2000], client_message[2000];
+    char clientName[80], server_message[2000], client_message[2000];
+
+    signal(SIGINT, signalHandler);
     
     printf("Message Client\n");
     printf("Version 1.0\n");
@@ -37,14 +59,18 @@ int main(void)
         return -1;
     }
 
+    printf("What is your name?: ");
+    fgets(clientName, sizeof(clientName) - 1, stdin);
+
     printf("\nConnected to server\n");
     printf("Client IP Address: %s\n", inet_ntoa(client_addr.sin_addr));
     printf("Client Port: %i\n", ntohs(client_addr.sin_port));
     printf("Server IP Address: %s\n", inet_ntoa(server_addr.sin_addr));
     printf("Server Port: %i\n\n", ntohs(server_addr.sin_port));
+
+    send(socket_desc, clientName, strlen(clientName) - 1, 0);
     
-    
-    while (TRUE) {
+    while (keepRunning) {
         memset(server_message,'\0',sizeof(server_message));
         memset(client_message,'\0',sizeof(client_message));
 
