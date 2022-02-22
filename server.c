@@ -10,6 +10,56 @@
 void *HandleTCPConnection(void *clientThreadNode);
 void TerminateTCPConnection(void *threadNode);
 
+int is_white_space(char c) {
+    return (c == ' ' || c == '\t' || c == '\n');
+}
+
+int get_first_position(char const *str) {
+    int i = 0;
+    while (is_white_space(str[i])) {
+        i += 1;
+    }
+    return (i);
+}
+
+int get_str_len(char const *str) {
+    int len = 0;
+    while (str[len] != '\0') {
+        len += 1;
+    }
+    return (len);
+}
+
+int get_last_position(char const *str) {
+    int i = get_str_len(str) - 1;
+    while (is_white_space(str[i])) {
+        i -= 1;
+    }
+    return (i);
+}
+
+int get_trim_len(char const *str) {
+    return (get_last_position(str) - get_first_position(str));
+}
+
+char *strtrim(char const *str) {
+    char *trim = NULL;
+    int i, len, start, end;
+    if (str != NULL) {
+        i = 0;
+        len = get_trim_len(str) + 1;
+        trim = (char *)malloc(len);
+        start = get_first_position(str);
+        while (i < len) {
+            trim[i] = str[start];
+            i += 1;
+            start += 1;
+        }
+        trim[i] = '\0';
+    }
+    return (trim);
+}
+
 pthread_mutex_t lock;
 
 typedef struct threadNode {
@@ -199,8 +249,9 @@ int main(void)
 void TerminateTCPConnection(void *clientThreadNode) {
     threadNode_t *threadNode = (threadNode_t*) clientThreadNode;
     threadNode->keepRunning = 0;
+    printf("\n");
     StatusSuccess("Client Disconnected");
-    printf("IP Address\t\t: %s\nPort\t\t\t: %i\nClient Socket ID\t: %i\nThread ID\t\t: %lu\nClient Number\t\t: %i\nClient Name\t\t: %s\n\n", inet_ntoa(threadNode->addr.sin_addr), ntohs(threadNode->addr.sin_port), threadNode->socketId, (unsigned long) threadNode->threadId, threadNode->id, threadNode->clientName);
+    printf("IP Address\t\t\t: %s\nPort\t\t\t\t: %i\nClient Socket ID\t\t: %i\nThread ID\t\t\t: %lu\nClient Number\t\t\t: %i\nClient Name\t\t\t: %s\n\n", inet_ntoa(threadNode->addr.sin_addr), ntohs(threadNode->addr.sin_port), threadNode->socketId, (unsigned long) threadNode->threadId, threadNode->id, threadNode->clientName);
     close (threadNode->socketId);
     pthread_cancel(threadNode->threadId);
 }
@@ -232,7 +283,7 @@ void *HandleTCPConnection(void *clientThreadNode) {
     sprintf(clientThreadId, "%li", (unsigned long)threadNode->threadId);
     send(threadNode->socketId, clientThreadId, sizeof(clientThreadId), 0);
     
-    printf("IP Address\t\t: %s\nPort\t\t\t: %i\nClient Socket ID\t: %i\nThread ID\t\t: %lu\nClient Number\t\t: %i\nClient Name\t\t: %s\n\n", inet_ntoa(threadNode->addr.sin_addr), ntohs(threadNode->addr.sin_port), threadNode->socketId, (unsigned long) threadNode->threadId, threadNode->id, threadNode->clientName);
+    printf("IP Address\t\t\t: %s\nPort\t\t\t\t: %i\nClient Socket ID\t\t: %i\nThread ID\t\t\t: %lu\nClient Number\t\t\t: %i\nClient Name\t\t\t: %s\n\n", inet_ntoa(threadNode->addr.sin_addr), ntohs(threadNode->addr.sin_port), threadNode->socketId, (unsigned long) threadNode->threadId, threadNode->id, threadNode->clientName);
     
     while (threadNode->keepRunning == 1) {
         bzero((char *) &clientMessageBuffer, sizeof(clientMessageBuffer));
@@ -246,8 +297,8 @@ void *HandleTCPConnection(void *clientThreadNode) {
 
         if(strcmp(clientMessageBuffer, ":EXIT") == 0) {
             TerminateTCPConnection((void *) threadNode);
-        } else {
-            printf("\033[1;33mClient [%s]\t: \033[0m%s\n", threadNode->clientName, clientMessageBuffer);
+        } else if (strlen(strtrim(clientMessageBuffer) > 0)) {
+            printf("\033[1;33mClient [%s]\t\t: \033[0m%s\n", threadNode->clientName, strtrim(clientMessageBuffer));
             
             lastThreadNode = clientSocketThreads.head;
             
@@ -257,9 +308,9 @@ void *HandleTCPConnection(void *clientThreadNode) {
                 
                 strcat(serverMessageBuffer, threadNode->clientName);
                 strcat(serverMessageBuffer, "] \t: ");
-                strcat(serverMessageBuffer, clientMessageBuffer);
+                strcat(serverMessageBuffer, strtrim(clientMessageBuffer));
                 
-                send(lastThreadNode ->socketId, serverMessageBuffer, sizeof(serverMessageBuffer) - 1, 0); 
+                send(lastThreadNode ->socketId, serverMessageBuffer, sizeof(serverMessageBuffer), 0); 
                 lastThreadNode = lastThreadNode->next;
             }
         }
