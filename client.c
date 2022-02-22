@@ -9,30 +9,100 @@
 #include <netdb.h>
 
 int keepRunning = 1;
-int socket_desc;
+int clientSocket;
+
+int is_white_space(char c) {
+    return (c == ' ' || c == '\t' || c == '\n');
+}
+
+int get_first_position(char const *str) {
+    int i = 0;
+    while (is_white_space(str[i])) {
+        i += 1;
+    }
+    return (i);
+}
+
+int get_str_len(char const *str) {
+    int len = 0;
+    while (str[len] != '\0') {
+        len += 1;
+    }
+    return (len);
+}
+
+int get_last_position(char const *str) {
+    int i = get_str_len(str) - 1;
+    while (is_white_space(str[i])) {
+        i -= 1;
+    }
+    return (i);
+}
+
+int get_trim_len(char const *str) {
+    return (get_last_position(str) - get_first_position(str));
+}
+
+char *strtrim(char const *str) {
+    char *trim = NULL;
+    int i, len, start, end;
+    if (str != NULL) {
+        i = 0;
+        len = get_trim_len(str) + 1;
+        trim = (char *)malloc(len);
+        start = get_first_position(str);
+        while (i < len) {
+            trim[i] = str[start];
+            i += 1;
+            start += 1;
+        }
+        trim[i] = '\0';
+    }
+    return (trim);
+}
+
+void DieWithError(char *message) {
+    printf("\033[1;31mTERMINATING\033[0m: Error: [%s]\n", message);
+    exit(EXIT_FAILURE);
+}
+
+void StatusSuccess(char *message) {
+    printf("\033[1;32mSUCCESS\033[0m: Message: [%s]\n", message);
+}
+
+void TerminateClient() {
+    keepRunning = 0;
+    close(clientSocket);
+    StatusSuccess("Disconnected from Server. Session Ended.");
+    exit(0);
+}
 
 void signalHandler(int sig) {
     char  c;
 
     signal(sig, SIG_IGN);
     
-    printf("TERMINATE: Did you hit Ctrl-C?\nDo you really want to quit? [y/n] : ");
+    printf("\n\nTERMINATE: Did you hit Ctrl-C?\nDo you really want to quit? [y/n] : ");
     c = getchar();
     
     if (c == 'y' || c == 'Y') {
-        keepRunning = 0;
-        close(socket_desc);
-        EXIT_FAILURE;
+       TerminateClient();
     } else {
         signal(SIGINT, signalHandler);
     }
 }
 
+
+
 int main(void)
 {
     
     struct sockaddr_in server_addr, client_addr, temp_addr;
-    char clientName[80], server_message[2000], client_message[2000];
+    int clientMessageCount, n;
+    char clientName[25], port[10], clientThreadId[25], serverMessageBuffer[1024], clientMessageBuffer[1024];
+    struct timeval tv;
+    tv.tv_sec = 1;
+    tv.tv_usec = 0;
 
     signal(SIGINT, signalHandler);
     
@@ -40,57 +110,78 @@ int main(void)
     printf("Version 1.0\n");
     printf("Starting...\n\n");
     
-    socket_desc = socket(AF_INET, SOCK_STREAM, 0);
+    clientSocket = socket(AF_INET, SOCK_STREAM, 0);
+    setsockopt(clientSocket, SOL_SOCKET, SO_RCVTIMEO, (const char*) &tv, sizeof tv);
     
-    if (socket_desc < 0) {
+    if (clientSocket < 0) {
         printf("Unable to create socket\n");
         return -1;
     }
     
-    printf("Socket created successfully\n");
-    printf("Socket ID: %i\n", socket_desc);
+    StatusSuccess("Socket created successfully");
+    printf("Socket ID\t\t: %i\n\n", clientSocket);
     
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(2000);
     server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
     
-    if (connect(socket_desc, (struct sockaddr*) &server_addr, sizeof(server_addr)) < 0) {
+    if (connect(clientSocket, (struct sockaddr*) &server_addr, sizeof(server_addr)) < 0) {
         printf("Unable to connect\n");
         return -1;
     }
 
-    printf("What is your name?: ");
-    fgets(clientName, sizeof(clientName) - 1, stdin);
-
-    printf("\nConnected to server\n");
-    printf("Client IP Address: %s\n", inet_ntoa(client_addr.sin_addr));
-    printf("Client Port: %i\n", ntohs(client_addr.sin_port));
-    printf("Server IP Address: %s\n", inet_ntoa(server_addr.sin_addr));
-    printf("Server Port: %i\n\n", ntohs(server_addr.sin_port));
-
-    send(socket_desc, clientName, strlen(clientName) - 1, 0);
+    //send(clientSocket, clientMessageBuffer, sizeof(clientMessageBuffer), 0);
+    //recv(clientSocket, port, sizeof(port), 0);
+   // send(clientSocket, clientMessageBuffer, sizeof(clientMessageBuffer), 0);
+    //recv(clientSocket, clientThreadId, sizeof(clientThreadId), 0);
     
-    while (keepRunning) {
-        memset(server_message,'\0',sizeof(server_message));
-        memset(client_message,'\0',sizeof(client_message));
+    bzero((char *) &clientName, sizeof(clientName));
+    
+    do {
+        printf("What is your name?\t: ");
+        fgets(clientName, sizeof(clientName), stdin);
+    } while(strlen(clientName) <= 1);
 
-        printf("Message: ");
-        fgets(client_message, sizeof(client_message) - 1, stdin);
+    printf("\n");
+
+    send(clientSocket, clientName, strlen(clientName) - 1, 0);
+    recv(clientSocket, port, sizeof(port), 0);
+    recv(clientSocket, clientThreadId, sizeof(clientThreadId), 0);
+    
+    //send(clientSocket, clientName, strlen(clientName) - 1, 0);
+    
+    StatusSuccess("Connected to server");
+    printf("Client IP Address\t: %s\n", inet_ntoa(client_addr.sin_addr));
+    printf("Client Port\t\t: %s\n", port);
+    printf("Server IP Address\t: %s\n", inet_ntoa(server_addr.sin_addr));
+    printf("Server Port\t\t: %i\n", ntohs(server_addr.sin_port));
+    printf("Thread ID\t\t: %s\n\n", clientThreadId);
+
+    while (keepRunning != 0) {
+        bzero((char *) &clientMessageBuffer, sizeof(clientMessageBuffer));
+        bzero((char *) &serverMessageBuffer, sizeof(serverMessageBuffer));
         
-        if (send(socket_desc, client_message, strlen(client_message) - 1, 0) < 0) {
-            printf("Unable to send message\n");
-            return -1;
+        do {
+            printf("\033[1;33mMe [%s]\t: \033[0m", strtrim(clientName));
+            fgets(clientMessageBuffer, sizeof(clientMessageBuffer), stdin);
+        } while(strlen(clientMessageBuffer) <= 1);
+
+        printf("Message len: %li\n", strlen(clientMessageBuffer));
+
+        if(strcmp(clientMessageBuffer, ":EXIT\n") == 0){
+            send(clientSocket, clientMessageBuffer, strlen(clientMessageBuffer) - 1, 0);
+            TerminateClient();
+        } else if(keepRunning != 0) {
+            if (send(clientSocket, clientMessageBuffer, strlen(clientMessageBuffer) - 1, 0) < 0) 
+                    TerminateClient();
+            do {
+                clientMessageCount = recv(clientSocket, serverMessageBuffer, sizeof(serverMessageBuffer), 0);
+                
+                if (clientMessageCount >=  0) 
+                    printf("%s\n", serverMessageBuffer);
+            } while (clientMessageCount >= 0);
         }
-        
-        if (recv(socket_desc, server_message, sizeof(server_message), 0) < 0) {
-            printf("Error while receiving server's msg\n");
-            return -1;
-        }
-        
-        printf("Server: %s\n",server_message);
-    }
-    
-    close(socket_desc);
-    
-    return 0;
+    } 
+
+    close(clientSocket);
 }
