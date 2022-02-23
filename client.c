@@ -2,77 +2,38 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
+#include <unistd.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#include <pthread.h>
+#include <server-tools.h>
 
-int keepRunning = 1;
-int clientSocket;
+void *HandleIncomingMessages();
 
-int is_white_space(char c) {
-    return (c == ' ' || c == '\t' || c == '\n');
-}
+typedef struct clientConnectionStruct {
+    pthread_t threadId;
+    int keepRunning;
+    int clientSocket;
+    char clientId[10];
+    struct sockaddr_in serverAddr;
+    struct sockaddr_in clientAddr;
+    char clientName[25];
+    char port[10];
+    char clientThreadId[25];
+    char serverMessageBuffer[1024];
+    char clientMessageBuffer[1024];
+    int clientMessageLength;
+} clientConnection_t;
 
-int get_first_position(char const *str) {
-    int i = 0;
-    while (is_white_space(str[i])) {
-        i += 1;
-    }
-    return (i);
-}
-
-int get_str_len(char const *str) {
-    int len = 0;
-    while (str[len] != '\0') {
-        len += 1;
-    }
-    return (len);
-}
-
-int get_last_position(char const *str) {
-    int i = get_str_len(str) - 1;
-    while (is_white_space(str[i])) {
-        i -= 1;
-    }
-    return (i);
-}
-
-int get_trim_len(char const *str) {
-    return (get_last_position(str) - get_first_position(str));
-}
-
-char *strtrim(char const *str) {
-    char *trim = NULL;
-    int i, len, start, end;
-    if (str != NULL) {
-        i = 0;
-        len = get_trim_len(str) + 1;
-        trim = (char *)malloc(len);
-        start = get_first_position(str);
-        while (i < len) {
-            trim[i] = str[start];
-            i += 1;
-            start += 1;
-        }
-        trim[i] = '\0';
-    }
-    return (trim);
-}
-
-void DieWithError(char *message) {
-    printf("\033[1;31mTERMINATING\033[0m: Error: [%s]\n", message);
-    exit(EXIT_FAILURE);
-}
-
-void StatusSuccess(char *message) {
-    printf("\033[1;32mSUCCESS\033[0m: Message: [%s]\n", message);
-}
+clientConnection_t clientConnection;
 
 void TerminateClient() {
-    keepRunning = 0;
-    close(clientSocket);
+    clientConnection.keepRunning = 0;
+    close(clientConnection.clientSocket);
+    pthread_cancel(clientConnection.threadId);
     StatusSuccess("Disconnected from Server. Session Ended.");
     exit(0);
 }
@@ -94,15 +55,28 @@ void signalHandler(int sig) {
     }
 }
 
-int main(void)
-{
+void signalHandler2(int sig) {
+    char  c;
+
+    signal(sig, SIG_IGN);
     
-    struct sockaddr_in server_addr, client_addr, temp_addr;
-    int clientMessageCount, n;
-    char clientName[25], port[10], clientThreadId[25], serverMessageBuffer[1024], clientMessageBuffer[1024];
+    printf("Error...............");
+}
+
+void PrintConnectionInformation(char *title) {
+    StatusSuccess(title);
+    printf("%-50s%s%s\n", "Client ID", " : ", clientConnection.clientId);
+    printf("%-50s%s%s\n", "Client Name", " : ", strtrim(clientConnection.clientName));
+    printf("%-50s%s%s\n", "IP Address", " : ", inet_ntoa(clientConnection.clientAddr.sin_addr));
+    printf("%-50s%s%s\n", "Port", " : ", clientConnection.port);
+    printf("%-50s%s%s\n\n", "Thread ID", " : ", clientConnection.clientThreadId);
+}
+
+int main(void) {
     struct timeval tv;
     tv.tv_sec = 1;
     tv.tv_usec = 0;
+    clientConnection.keepRunning = 1;
 
     signal(SIGINT, signalHandler);
     
@@ -110,76 +84,90 @@ int main(void)
     printf("Version 1.0\n");
     printf("Starting...\n\n");
     
-    clientSocket = socket(AF_INET, SOCK_STREAM, 0);
-    setsockopt(clientSocket, SOL_SOCKET, SO_RCVTIMEO, (const char*) &tv, sizeof tv);
+    clientConnection.clientSocket = socket(AF_INET, SOCK_STREAM, 0);
+    setsockopt(clientConnection.clientSocket, SOL_SOCKET, SO_RCVTIMEO, (const char*) &tv, sizeof tv);
     
-    if (clientSocket < 0) {
+    if (clientConnection.clientSocket < 0) {
         printf("Unable to create socket\n");
         return -1;
     }
     
     StatusSuccess("Socket created successfully");
-    printf("Socket ID\t\t\t: %i\n\n", clientSocket);
+    printf("%-50s%s%i\n", "Scoket ID", " : ", clientConnection.clientSocket);
     
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(2000);
-    server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    clientConnection.serverAddr.sin_family = AF_INET;
+    clientConnection.serverAddr.sin_port = htons(2000);
+    clientConnection.serverAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
     
-    if (connect(clientSocket, (struct sockaddr*) &server_addr, sizeof(server_addr)) < 0) {
+    if (connect(clientConnection.clientSocket, (struct sockaddr*) &clientConnection.serverAddr, sizeof(clientConnection.serverAddr)) < 0) {
         printf("Unable to connect\n");
         return -1;
     }
 
-    //send(clientSocket, clientMessageBuffer, sizeof(clientMessageBuffer), 0);
-    //recv(clientSocket, port, sizeof(port), 0);
-   // send(clientSocket, clientMessageBuffer, sizeof(clientMessageBuffer), 0);
-    //recv(clientSocket, clientThreadId, sizeof(clientThreadId), 0);
-    
-    bzero((char *) &clientName, sizeof(clientName));
+    bzero((char *) &clientConnection.clientName, sizeof(clientConnection.clientName));
     
     do {
-        printf("What is your name?\t\t: ");
-        fgets(clientName, sizeof(clientName), stdin);
-    } while(strlen(clientName) <= 1);
+        printf("%-50s%s", "What's your name? ", " : ");
+        fgets(clientConnection.clientName, sizeof(clientConnection.clientName), stdin);
+    } while(strlen(clientConnection.clientName) <= 1);
 
     printf("\n");
 
-    send(clientSocket, clientName, strlen(clientName) - 1, 0);
-    recv(clientSocket, port, sizeof(port), 0);
-    recv(clientSocket, clientThreadId, sizeof(clientThreadId), 0);
-    
-    //send(clientSocket, clientName, strlen(clientName) - 1, 0);
-    
-    StatusSuccess("Connected to server");
-    printf("Client IP Address\t\t: %s\n", inet_ntoa(client_addr.sin_addr));
-    printf("Client Port\t\t\t: %s\n", port);
-    printf("Server IP Address\t\t: %s\n", inet_ntoa(server_addr.sin_addr));
-    printf("Server Port\t\t\t: %i\n", ntohs(server_addr.sin_port));
-    printf("Thread ID\t\t\t: %s\n\n", clientThreadId);
+    send(clientConnection.clientSocket, clientConnection.clientName, strlen(clientConnection.clientName) - 1, 0);
+    recv(clientConnection.clientSocket, clientConnection.clientId, sizeof(clientConnection.clientId), 0);
+    recv(clientConnection.clientSocket, clientConnection.port, sizeof(clientConnection.port), 0);
+    recv(clientConnection.clientSocket, clientConnection.clientThreadId, sizeof(clientConnection.clientThreadId), 0);
 
-    while (keepRunning != 0) {
-        bzero((char *) &clientMessageBuffer, sizeof(clientMessageBuffer));
-        bzero((char *) &serverMessageBuffer, sizeof(serverMessageBuffer));
+    PrintConnectionInformation("Connected to Server");
+
+    if (pthread_create(&clientConnection.threadId , NULL, HandleIncomingMessages, NULL) != 0) 
+        DieWithError("Unable to create thread.\n");
+    
+    while (clientConnection.keepRunning != 0) {
+        bzero((char *) &clientConnection.clientMessageBuffer, sizeof(clientConnection.clientMessageBuffer));
+        bzero((char *) &clientConnection.serverMessageBuffer, sizeof(clientConnection.serverMessageBuffer));
         
         do {
-            printf("\033[1;33mMe [%s]\t\t: \033[0m", strtrim(clientName));
-            fgets(clientMessageBuffer, sizeof(clientMessageBuffer), stdin);
-        } while(strlen(clientMessageBuffer) <= 1);
+            printf("%s%-47s%s", "Me \033[1;33m", strtrim(clientConnection.clientName), "\033[0m : ");
+            fgets(clientConnection.clientMessageBuffer, sizeof(clientConnection.clientMessageBuffer), stdin);
+        } while(strlen(clientConnection.clientMessageBuffer) <= 1);
 
-        if(strcmp(clientMessageBuffer, ":EXIT\n") == 0){
-            send(clientSocket, clientMessageBuffer, strlen(clientMessageBuffer), 0);
+        if(strcmp(clientConnection.clientMessageBuffer, ":EXIT\n") == 0){
+            send(clientConnection.clientSocket, clientConnection.clientMessageBuffer, strlen(clientConnection.clientMessageBuffer), 0);
             TerminateClient();
-        } else if(keepRunning != 0) {
-            if (send(clientSocket, clientMessageBuffer, strlen(clientMessageBuffer), 0) < 0) 
+        } else if(clientConnection.keepRunning != 0) {
+            if (send(clientConnection.clientSocket, clientConnection.clientMessageBuffer, strlen(clientConnection.clientMessageBuffer), 0) < 0) 
                     TerminateClient();
-            do {
-                clientMessageCount = recv(clientSocket, serverMessageBuffer, sizeof(serverMessageBuffer), 0);
-                
-                if (clientMessageCount >=  0) 
-                    printf("%s\n", serverMessageBuffer);
-            } while (clientMessageCount >= 0);
+
+            clientConnection.clientMessageLength = recv(clientConnection.clientSocket, clientConnection.serverMessageBuffer, sizeof(clientConnection.serverMessageBuffer), 0);
+            
+            if(clientConnection.clientMessageLength > -1 && strlen(strtrim(clientConnection.serverMessageBuffer)) > 0)
+                printf("%s\n", clientConnection.serverMessageBuffer);
         }
     } 
 
-    close(clientSocket);
+    close(clientConnection.clientSocket);
+}
+
+void sighandler(int signum) {
+   printf("Caught signal %d, coming out...\n", signum);
+   exit(1);
+}
+
+void *HandleIncomingMessages() {
+    signal(SIGINT, signalHandler);
+    
+    while (clientConnection.keepRunning != 0) {
+        do {
+            bzero((char *) &clientConnection.clientMessageBuffer, sizeof(clientConnection.clientMessageBuffer));
+            clientConnection.clientMessageLength = recv(clientConnection.clientSocket, clientConnection.serverMessageBuffer, sizeof(clientConnection.serverMessageBuffer), 0);
+            
+            if (clientConnection.clientMessageLength > -1 && strlen(strtrim(clientConnection.serverMessageBuffer)) > 0) 
+                printf("%s\n", clientConnection.serverMessageBuffer);
+        } while (clientConnection.clientMessageLength > -1);
+
+        sleep(1);
+    }
+
+    pthread_exit(NULL);
 }

@@ -130,21 +130,32 @@ void * serverthread(void * parm)
 
    tsd = *(int *)parm;
 
+  
+
    pthread_mutex_lock(&mut);
         tvisits = ++visits;
    pthread_mutex_unlock(&mut);
 
    tot = 0;
-   do {
-        tot += (n = recv (tsd, message_to_archive+tot, 100-tot, 0));
-        if (n < 0) {
-           fprintf (stderr, "ERROR reading from socket: %d", n);
-           printf ("ERROR reading from socket: %d", n);
-           close (tsd);
-           pthread_exit(0);
-        }
-   } while (message_to_archive[tot-1] > 0);
-           message_to_archive[tot] = 0;
+
+     printf("Created thread\n");
+//    do {
+//         tot += (n = recv (tsd, message_to_archive+tot, 100-tot, 0));
+//         if (n < 0) {
+//            fprintf (stderr, "ERROR reading from socket: %d", n);
+//            printf ("ERROR reading from socket: %d", n);
+//            close (tsd);
+//            pthread_exit(0);
+//         }
+//    } while (message_to_archive[tot-1] > 0);
+//            message_to_archive[tot] = 0;
+     if ( recv (tsd, message_to_archive+tot, sizeof(message_to_archive), 0) < 0) {
+          fprintf (stderr, "ERROR reading from socket: %d", n);
+          printf ("ERROR reading from socket: %d", n);
+          close (tsd);
+          pthread_exit(0);
+     }
+
    printf ("%s\n", message_to_archive);
 
    sprintf(buf,"This server has been contacted %d time%s\n",

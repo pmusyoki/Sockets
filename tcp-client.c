@@ -20,6 +20,7 @@ int main(int argc, char *argv[])
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd < 0)
         error("ERROR opening socket");
+
     server = gethostbyname(argv[1]);
 
  if (server == NULL) {
@@ -32,6 +33,7 @@ int main(int argc, char *argv[])
          (char *)&serv_addr.sin_addr.s_addr,
          server->h_length);
     serv_addr.sin_port = htons(portno);
+    printf("Here.........\n");
     if (connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr)) < 0)
         error("ERROR connecting");
     printf("Please enter the message: ");
