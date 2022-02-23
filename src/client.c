@@ -26,6 +26,7 @@ typedef struct clientConnectionStruct {
     char serverMessageBuffer[1024];
     char clientMessageBuffer[1024];
     int clientMessageLength;
+    int waitingForInput;
 } clientConnection_t;
 
 clientConnection_t clientConnection;
@@ -55,14 +56,6 @@ void signalHandler(int sig) {
     }
 }
 
-void signalHandler2(int sig) {
-    char  c;
-
-    signal(sig, SIG_IGN);
-    
-    printf("Error...............");
-}
-
 void PrintConnectionInformation(char *title) {
     StatusSuccess(title);
     printf("%-50s%s%s\n", "Client ID", " : ", clientConnection.clientId);
@@ -73,6 +66,7 @@ void PrintConnectionInformation(char *title) {
 }
 
 int main(void) {
+    int waitingForInput;
     struct timeval tv;
     tv.tv_sec = 1;
     tv.tv_usec = 0;
@@ -127,10 +121,14 @@ int main(void) {
         bzero((char *) &clientConnection.clientMessageBuffer, sizeof(clientConnection.clientMessageBuffer));
         bzero((char *) &clientConnection.serverMessageBuffer, sizeof(clientConnection.serverMessageBuffer));
         
+        clientConnection.waitingForInput = 1;
+
         do {
             printf("%s%-47s%s", "Me \033[1;33m", strtrim(clientConnection.clientName), "\033[0m : ");
             fgets(clientConnection.clientMessageBuffer, sizeof(clientConnection.clientMessageBuffer), stdin);
         } while(strlen(clientConnection.clientMessageBuffer) <= 1);
+
+        clientConnection.waitingForInput = 0;
 
         if(strcmp(clientConnection.clientMessageBuffer, ":EXIT\n") == 0){
             send(clientConnection.clientSocket, clientConnection.clientMessageBuffer, strlen(clientConnection.clientMessageBuffer), 0);
@@ -162,8 +160,13 @@ void *HandleIncomingMessages() {
             bzero((char *) &clientConnection.clientMessageBuffer, sizeof(clientConnection.clientMessageBuffer));
             clientConnection.clientMessageLength = recv(clientConnection.clientSocket, clientConnection.serverMessageBuffer, sizeof(clientConnection.serverMessageBuffer), 0);
             
-            if (clientConnection.clientMessageLength > -1 && strlen(strtrim(clientConnection.serverMessageBuffer)) > 0) 
+            if (clientConnection.clientMessageLength > -1 && strlen(strtrim(clientConnection.serverMessageBuffer)) > 0) {
+                if (clientConnection.waitingForInput == 1) 
+                    printf("\n");
+
                 printf("%s\n", clientConnection.serverMessageBuffer);
+                clientConnection.waitingForInput == 0;
+            }
         } while (clientConnection.clientMessageLength > -1);
 
         sleep(1);
